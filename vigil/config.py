@@ -19,6 +19,8 @@ DEFAULT_CONFIG = REPO_ROOT / "config" / "groups.toml"
 DEFAULT_ENV = REPO_ROOT / ".env"
 DEFAULT_PERSONS = REPO_ROOT / "config" / "persons.toml"
 DEFAULT_LLM_TOML = REPO_ROOT / "config" / "llm.toml"
+# 网页通知源的配置（`source = "web"` 时读它）。
+DEFAULT_SOURCES = REPO_ROOT / "config" / "sources.toml"
 
 
 class ConfigError(RuntimeError):
@@ -51,6 +53,27 @@ class Config:
     # 用哪个数据源实现。'synthetic' 是演示默认（离线、可复现）；
     # 'qq' 需要私有模块 qq_source.py（不随开源版本分发）。
     source: str = "synthetic"
+
+    @property
+    def sources_path(self) -> pathlib.Path:
+        """`config/sources.toml` 的落点（网页源用）。
+
+        ⚠️ **与 `output_db` 同根解析**：测试把 `output_db` 挪到 tmp 时，
+        这份配置也要跟着挪 —— 否则用例会读到仓库里那份真实的源配置，
+        于是"测试通过"取决于本机有没有配 sources.toml。
+        """
+        return self.output_db.parent.parent / "config" / "sources.toml"
+
+    @property
+    def fixture_path(self) -> pathlib.Path:
+        """抓取夹具的落点（`data/sources-fixture.json`）。
+
+        ⚠️ 落在 `data/` 下（已被 .gitignore 挡着）是**刻意的**：
+        它是**运行时产物**，不是要进仓库的那份。要进仓库的夹具由
+        `save_fixture()` 显式写到别处（如 `demo/sources-fixture.json`）——
+        这个区分很重要，否则"抓一次就改了仓库"。
+        """
+        return self.output_db.parent / "sources-fixture.json"
 
     @property
     def enabled_groups(self) -> tuple[Group, ...]:

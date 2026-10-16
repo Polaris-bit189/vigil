@@ -152,6 +152,27 @@ def open_source(name: str, config: Config) -> Source:
             ) from exc
         return qq_source.QQSource(config)
 
+    if name == "web":
+        # 网页通知源：只读**公开发布**的页面（合规 + 可复现那条路）。
+        # ⚠️ 配置缺失时**快速失败**（不是回退到合成源）——
+        # 回退会让人以为"web 源跑起来了"，而其实读的是假数据。
+        from . import web_source
+
+        # ⚠️⚠️ **夹具优先**（复现红线）：`data/sources-fixture.json` 存在时
+        # 就从它读，**一次网络请求都不发**。
+        #
+        # 这不是"缓存优化"，是**让评委能跑起来**：实时抓取依赖
+        # 学校站点在线、没改版、且评委能访问 —— 三个条件缺一个复现就失败，
+        # 而复现失败是取消资格级别（赛题第⑦条）。
+        #
+        # ⚠️ 夹具是**可选**的：没有它就走实时抓取（真实使用场景）。
+        # 两条路产出同一种 `SourceMessage`，所以夹具能验证实时路径。
+        return web_source.WebSource(
+            web_source.load_sources(config.sources_path),
+            pages=web_source.load_fixture(config.fixture_path) or None,
+        )
+
     raise ConfigError(
-        f"未知的数据源 {name!r}。可用：'synthetic'（演示）、'qq'（需私有模块）。"
+        f"未知的数据源 {name!r}。可用：'synthetic'（演示）、'web'（公开通知页）、"
+        "'qq'（需私有模块）。"
     )

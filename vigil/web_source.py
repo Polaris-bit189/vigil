@@ -78,9 +78,13 @@ def _parse_selector(sel: str) -> tuple[str, str | None, str | None]:
     """
     attr: str | None = None
     if "@" in sel:
-        sel, attr = sel.rsplit("@", 1)
-        if not attr:
-            raise ConfigError(f"选择器 {sel!r} 的 @ 后面缺属性名（如 a@href）")
+        if sel.count("@") > 1:
+            raise ConfigError(
+                f"选择器 {sel!r} 里有多个 @ —— 去掉属性名（如 `a@href`）"
+            )
+        sel, attr = sel.split("@", 1)
+        if not attr or not sel:
+            raise ConfigError(f"选择器 {sel!r} 的 @ 前后都必须有内容（如 a@href）")
     cls: str | None = None
     if "." in sel:
         sel, cls = sel.split(".", 1)
@@ -130,7 +134,7 @@ class _RowParser(HTMLParser):
         self._title_sel = _parse_selector(src.title)
         self._date_sel = _parse_selector(src.date)
         self._link_sel = _parse_selector(src.link)
-        self._depth = 0          # 当前行内的嵌套深度
+        self._row_tag = ""       # 进入行时的标签名（配对它就知道行尾在哪）
         self._in_row = False
         self._row: dict[str, str] = {}
         self._text_target: str | None = None  # 正在收集哪个字段的文本
@@ -142,12 +146,20 @@ class _RowParser(HTMLParser):
         if not self._in_row:
             if _matches(tag, a, self._list_sel):
                 self._in_row = True
-                self._depth = 0
+                # ⚠️⚠️ **记下"行标签"的名字与嵌套深度**（实测踩到的一个真 bug）：
+                # 原实现用 `depth == 0` 判行结束，但**行元素自己**（`<li>`）
+                # 进入时没被计数 ⇒ 内部 `<span>` 结束时 depth 从 0 变 1（该减却加），
+                # 于是 `</li>` 时 depth 不对，行**永远收不了**。
+                # 症状：`list = "li.x"` 这类选择器解析出 **0 条**（静默）。
+                #
+                # ⇒ 用"进入行时自己的标签名"配对，配到同名的结束标签就是行尾。
+                # 这比数嵌套深度简单，且对 `<li>` 里嵌 `<li>` 的畸形 HTML 更稳
+                # （那种页面本来就该跳过，不该让整个解析崩掉）。
+                self._row_tag = tag
                 self._row = {}
             return
 
         # 行内：找三个目标元素
-        self._depth += 1
         if _matches(tag, a, self._title_sel):
             self._text_target, self._buf = "title", []
             # ⚠️ `title` 属性**比显示文本完整**（显示的是截断版，带省略号）。
@@ -167,14 +179,20 @@ class _RowParser(HTMLParser):
             # ⚠️ 只看标签名，不比对选择器：目标元素可能带 id/class 变体，
             # 而"当前正在收集的字段"这个状态本身已经说明了我们在哪个元素里。
             if tag == self._target_tag():
-                self._row[self._text_target] = "".join(self._buf).strip()
+                text = "".join(self._buf).strip()
+                # ⚠️⚠️ **不要覆盖已有的值**（实测踩到，是个真 bug）：
+                # `handle_starttag` 已经取了 `title` 属性（那才是**完整**标题），
+                # 而显示文本是**截断版**。这里无条件赋值会把属性值盖掉 ——
+                # 于是"优先取属性"那条注释与行为**相反**。
+                #
+                # ⇒ 只在还没有值时才用文本（`<span>` 日期走这支，它没有属性）。
+                if not self._row.get(self._text_target):
+                    self._row[self._text_target] = text
                 self._text_target, self._buf = None, []
-        if self._depth == 0:
+        if tag == self._row_tag:
             self._in_row = False
             if self._row.get("title") or self._row.get("href"):
                 self.rows.append(self._row)
-        else:
-            self._depth -= 1
 
     def handle_data(self, data: str) -> None:
         if self._in_row and self._text_target is not None:
