@@ -1,0 +1,208 @@
+# VIGIL 演示语料规格
+#
+# 这份文件**是数据，不是代码** —— 语料长什么样在这里改，生成器一行不用动。
+# 它同时是「我们的测试数据从哪来」这个问题的答案：可读、可 diff、可评审。
+#
+# ── 设计目标 ───────────────────────────────────────────────
+# 不是"像真实群聊"，而是**覆盖下游全部代码路径**。
+# 每加一条模板，都要能说清它在压哪条路径（见每条模板上方的 ⚑ 注）。
+#
+# ⚠️ 这里的一切都是**编的**。手机号用 139-0000-xxxx 段（运营商未分配），
+#    群号用 9000000xx 段，人名用「张三李四王五赵六孙七周八吴九郑十」。
+#    别往这里粘真实数据 —— 本文件要进公开仓库。
+
+
+[meta]
+# 同一个 seed 必须产出逐字节相同的库（确定性）。改 seed 就换一份语料。
+seed = 20261014
+# 语料覆盖的天数。120 天 = 4 个月，够跨月、跨旬、有周末。
+days = 120
+# 噪声消息占比。噪声用来压 prefilter 的丢弃路径（BARE_ACK / short / flood）。
+noise_ratio = 0.35
+
+
+# ── 群 ────────────────────────────────────────────────────
+# tier 决定 prefilter 的档位：high = 每条都送模型；normal = 过关键词筛。
+
+[[groups]]
+id = 900000001
+name = "示例·年级通知群"
+tier = "high"
+members = 40
+
+[[groups]]
+id = 900000002
+name = "示例·班级群"
+tier = "high"
+members = 32
+
+[[groups]]
+id = 900000003
+name = "示例·社团活动群"
+tier = "normal"
+members = 24
+
+[[groups]]
+id = 900000004
+name = "示例·二手交易群"
+tier = "normal"
+members = 18
+
+
+# ── 发信人 ─────────────────────────────────────────────────
+# need = 这个群里至少要有这么多个这类发信人。
+# ⚑ role 类发信人压的是 prefilter.ROLE_PATTERN（角色词命中 ⇒ 即使不含关键词也保留）
+# ⚑ anonymous 压的是 refine 的匿名分支（uid 为空，必须逐条区分而不是共用一个代号）
+[[senders]]
+role = "班助"
+n = 3
+name_pool = ["张三", "李四", "王五"]
+
+[[senders]]
+role = "同学"
+n = 14
+name_pool = []
+
+[[senders]]
+role = "辅导员"
+n = 1
+name_pool = ["赵六"]
+
+
+# ── 消息模板 ───────────────────────────────────────────────
+# 占位符在渲染时替换：
+#   {date_cn}   「9月30日」   ← deadline.py 的汉字分支
+#   {date_dot}  「9.30」      ← deadline.py 的数字分支（点号）
+#   {date_slash}「10/15」     ← deadline.py 的数字分支（斜杠）
+#   {date_dash} 「2026-09-16」← deadline.py 的数字分支（完整年月日）
+#   {place} / {amount} / {phone} / {qq} / {group_no} / {term}
+#   {n}         小整数（人数、门牌号一类）
+#
+# ⚑ deadline 字段声明这条模板的截止日**有没有字面依据**：
+#     "literal"  = 正文里写明日期  ⇒ 应通过 deadline_supported
+#     "implied"  = 只有「明天」「周五」这类相对说法 ⇒ **必须被闸拦下**
+#   两条都要有：只测"能过"的语料，等于没测闸门。
+
+[[templates]]
+kind = "notice"
+deadline = "literal"
+text = "关于{term}的通知：请于{date_cn}前完成，逾期不再受理。"
+
+[[templates]]
+kind = "notice"
+deadline = "literal"
+text = "{term}材料提交：截止{date_dash}，地点{place}。"
+
+[[templates]]
+kind = "notice"
+deadline = "literal"
+text = "【提醒】{term}报名 {date_slash} 截止，请相互转告。"
+
+[[templates]]
+kind = "academic"
+deadline = "literal"
+text = "{term}考试安排已出，考试时间{date_dot}，教室{place}。"
+
+[[templates]]
+kind = "academic"
+deadline = "implied"
+text = "老师说这门课下周收作业，大家抓紧。"
+# ⚑ 这条**故意只给相对说法**：模型若把它补成一个具体日期，
+#   deadline_supported 必须拦下 —— 这是本项目防幻觉的核心判据。
+
+[[templates]]
+kind = "academic"
+deadline = "literal"
+text = "选课系统 {date_cn} 开放，名额有限先到先得。"
+
+# ── 带「活动时刻」的模板（M7：`start_ts`）────────────────────
+#
+# ⚑ 这几条压的是 `deadline._time_patterns` 与 `refine._parse_start`。
+#   在这之前语料里**一个时刻都没有**（实测 grep 零命中），
+#   于是那条管线改完也测不了 —— 阳性用例没有可引用的依据。
+#
+# ⚑ 写法刻意分散：24 小时制 / 全角冒号 / 中文数字+时段词 / 带「半」。
+#   `{date_*}` 与 `{time_*}` 给的是**同一天**，所以两道判据能各自对上。
+
+[[templates]]
+kind = "activity"
+deadline = "literal"
+text = "{term}讲座 {date_cn} {time_hm} 在{place}开始，请提前十分钟入场。"
+
+[[templates]]
+kind = "activity"
+deadline = "literal"
+text = "【集合通知】{date_cn} {time_cn}到{place}集合，迟到不候。"
+
+[[templates]]
+kind = "activity"
+deadline = "literal"
+text = "班会定在 {date_slash} {time_hm_cn}，地点{place}，请准时。"
+
+[[templates]]
+kind = "activity"
+deadline = "implied"
+text = "明天{time_plain}在{place}训练，记得带装备。"
+# ⚑ ⚠️ **交叉对照**：这条只有「几点」、没有具体日期 ⇒ 时刻应当有效，
+#   而 `deadline` 是 implied（`deadline_supported` 要拦下它编的日期）。
+#    两道闸门在同一批语料上分别受检，不会互相掩盖。
+
+[[templates]]
+kind = "notice"
+deadline = "literal"
+text = "{term}材料提交：{date_dash} 截止，提交地点{place}。"
+# ⚑ ⚠️ **阴性对照**：这条**只有日期、没有任何时刻** ⇒ 模型若给出一条
+#    `start`，`start_supported` 必须清掉它。没有这条对照，
+#    「闸门生效」与「模型本来就不填 start」两种解释**分不开**。
+
+[[templates]]
+kind = "activity"
+deadline = "literal"
+text = "{term}活动报名：{date_slash} 前扫下方二维码，活动地点{place}。"
+
+[[templates]]
+kind = "activity"
+deadline = "literal"
+text = "社团招新啦！{date_cn} 在{place}摆摊，欢迎来看。"
+
+[[templates]]
+kind = "activity"
+deadline = "implied"
+text = "今晚七点老地方集合，别迟到。"
+
+[[templates]]
+kind = "life"
+deadline = "none"
+text = "{place}附近有家新开的店，味道不错，人均{amount}。"
+
+[[templates]]
+kind = "life"
+deadline = "literal"
+text = "失物招领：{place}捡到一张校园卡，联系{phone}。"
+
+[[templates]]
+kind = "life"
+deadline = "none"
+text = "求购二手自行车一辆，预算{amount}，有意者联系 QQ {qq}。"
+
+[[templates]]
+kind = "life"
+deadline = "literal"
+text = "拼车回老家，{date_cn} 出发，还差{n}人，群号 {group_no}。"
+
+
+# ── 噪声模板 ───────────────────────────────────────────────
+# ⚑ 这些压的是 prefilter 的**丢弃**路径。只测保留路径 = 没测过滤器。
+#   每条都对应 prefilter 里的一个具体规则。
+
+[[noise]]
+reason = "ack"
+texts = ["收到", "好的", "已填", "1", "谢谢老师"]
+
+[[noise]]
+reason = "short"
+texts = ["嗯", "在吗", "哈哈"]
+
+[[noise]]
+reason = "flood"
+texts = ["+1", "同上"]

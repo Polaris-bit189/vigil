@@ -1,0 +1,28 @@
+# VIGIL 网页服务 —— 替代本机的 scripts/register-serve-task.ps1 + serve_supervisor.py
+#
+# ⚠️ **上云带来的真实简化**：那两份脚本（任务计划注册 + 进程看护）
+# 干的是同一件事的两半 —— "开机自启"与"崩了重拉"。systemd 用一个 unit 全包了：
+#   · `Restart=always`   ← 等价于 serve_supervisor.py 的崩溃重启
+#   · `Type=simple`      ← 等价于它的单实例锁（systemd 自己保证一个 unit 一份实例）
+# 这不是"换了个写法"，是**删掉了两个文件**。
+[Unit]
+Description=VIGIL 守夜人网页服务（只读 API over RDS）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vigil
+WorkingDirectory=/opt/vigil
+# ⚠️ 环境文件权限 `root:600`，含 RDS DSN 与 Redis URL ——
+#    绝不写进 unit 文件（那个要进 git）。
+EnvironmentFile=/etc/vigil/vigil.env
+ExecStart=/opt/vigil/.venv/bin/vigil serve --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+# 日志进 journald，`journalctl -u vigil-serve` 看
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

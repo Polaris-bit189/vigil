@@ -1,0 +1,67 @@
+# ── 密钥 · 绝不提交 ──────────────────────────────────────────
+#
+# `.env` 是业界惯例的密钥落点（各家 SDK 都认这个文件名）。示例在 `.env.example`
+# （那个**要**提交 —— 缺它评委卡在第一步）。
+.env
+.env.local
+
+# ── 本地数据（运行时产物）─────────────────────────────────────
+#
+# `data/vigil.db` 是 `vigil demo` / `vigil ingest` 的产物。它**可以**重建
+# （一条命令），所以不入库；而可提交的那份演示种子在 `demo/` 里。
+data/
+
+# ── 云侧机密 ────────────────────────────────────────────────
+#
+# Terraform state **含密码明文** ⇒ 必须挡。
+deploy/terraform/.terraform/
+deploy/terraform/.terraform.lock.hcl
+deploy/terraform/*.tfstate
+deploy/terraform/*.tfstate.*
+deploy/terraform/terraform.tfvars
+deploy/terraform/*.auto.tfvars
+.auto-deploy/
+# SSH 私钥
+*.pem
+*.key
+
+# ── Python ─────────────────────────────────────────────────
+__pycache__/
+*.py[oc]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+# 本项目的**本地明文库**（由 ingest 生成，见上）
+*.db
+
+# 例外：演示种子库**要**入库 —— 评委 clone 下来就有数据、不必先跑生成器。
+# ⚠️ 这条 `!` 必须写在 `*.db` 之后，gitignore 是**最后匹配者胜**。
+!demo/*.db
+
+# ⚠️ **第二道防线**：`str(None)` 是字面量 `"None"`，一个把 `db_path` 传成
+# `None` 的调用会在仓库根建出一个**叫 `None` 的 SQLite 文件**——而
+# `*.db` 通配符**匹配不到它**（文件名里根本没有 `.db`）。
+# 实测 2026-10-15 真发生过一次（73KB 空库，表结构齐全、零行数据）。
+# 根因已在 `refine.refine()` 里改成响亮失败；这里再挡一道，
+# 免得日后再冒出来时**无声地**随开源仓库发出去。
+None
+
+# ── 前端 ────────────────────────────────────────────────────
+node_modules/
+web/node_modules/
+# ⚠️ **`web/dist/` 要进仓库**（2026-10-16 裁决）—— 它是**构建产物**，通常该 ignore，
+# 但本项目的复现红线要求「评委 clone 后照 README 跑一遍就能看到网页」：
+#   README 第 ③ 步是 `vigil serve` + 浏览器打开，而 `web/dist/` 不进仓库的话，
+#   评委看到的只有一句「前端还没构建」——**那与 README 承诺的效果不符**。
+# 代价是 505K / 11 个文件，换来"不用装 node 也能看到 Demo"。取舍明确。
+# ⚠️ 改了前端**必须重新 `npm run build`** 并把 dist 一起提交，否则页面与源码不一致
+#   —— 而那正是「复现结果与答辩材料不符」的一种（赛题第⑦条）。
+web/dev-dist/
+
+# ── 编辑器 / 系统 ───────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

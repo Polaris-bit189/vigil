@@ -1,0 +1,51 @@
+# VIGIL 的 LLM 端点配置
+#
+# ⚠️ **本文件里永远不放密钥。** 密钥走仓库根 `.env`（或环境变量），
+#    因为 `config/*.toml` 是**要进 git** 的。
+#
+# ⚠️ **本文件由程序整体重写**（网页「配置」页保存时会覆盖它）：
+#    手工改也行，但**手工加的注释会在下一次网页保存时消失**。
+#
+# 改完不需要重启服务：`vigil refine` / `vigil digest` 每次运行都会重新读它。
+
+[llm]
+
+# OpenAI 兼容的 chat completions 端点（**要写到 /chat/completions 为止**）。
+#
+# 本地 Ollama（默认，离线、零成本）：
+base_url = "http://localhost:11434/v1/chat/completions"
+
+# 华为云 MaaS（赛题要求的"调用华为云大模型能力"；endpoint 以控制台当时
+# 展示为准，**别硬编码**——在控制台「MaaS → 在线推理 → 开通模型 →
+# 获取 API 地址」抄过来填这里）：
+#   base_url = "https://<你的 MaaS 端点>/v1/chat/completions"
+
+# 模型名。本地用 Ollama 的 tag（`ollama list` 可查）；云端用 MaaS 的模型名。
+model = "qwen3:8b"
+
+# ── auth：要不要密钥 ──────────────────────────────────────
+#   "none"   ← 不发 Authorization 头。**本地 Ollama 必须用这个**：
+#              Ollama 对空的 `Bearer ` 头会直接拒绝。
+#   "bearer" ← 发 `Authorization: Bearer <key>`
+auth = "none"
+
+# 密钥从哪个环境变量取（只在 auth = "bearer" 时有意义）。
+# 用配置项而不是硬编码变量名，是因为"密钥叫什么"随端点而变。
+api_key_env = "VIGIL_LLM_KEY"
+
+# ── enable_thinking：三态，**换端点时注意** ────────────────────
+#
+#   不写这一行        → **不发这个字段**（通用 OpenAI 端点最安全的形状）
+#   = false           → 发 false
+#   = true            → 发 true
+#
+# ⚠️ 它是 **SiliconFlow / Qwen 的扩展字段**：通用 OpenAI 端点不认它，
+#    会直接 400。**所以本文件里没有这一行** —— Ollama 与 MaaS 都用不着。
+#    若日后切回 SiliconFlow，再把它加回来并设 false。
+#
+# ⚠️ 用 Qwen3/Qwen3.5 这类**混合思考模型**、且走 SiliconFlow 时**必须**设 false：
+#    实测 Qwen3.5-35B-A3B 不传该字段要 111.5s / 11,124 输出 token，
+#    传 false 只要 2.8s / 220 token —— **40 倍差距**。
+#
+# （Ollama 侧关思考是另一个开关：`think` 参数或模型自身的模板，
+#   与这里的字段无关。）

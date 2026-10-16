@@ -1,0 +1,16 @@
+# VIGIL 每日管线 —— 替代本机的 scripts/register-task.ps1 + vigil-daily.cmd
+[Unit]
+Description=VIGIL 每日管线（摄取 → 抽取 → 日报）
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=vigil
+WorkingDirectory=/opt/vigil
+EnvironmentFile=/etc/vigil/vigil.env
+# ⚠️ `daily` 是**唯一**该跑的入口：它内部按 `ingest → refine → digest`
+#    顺序编排，且退出码语义冻结（0 成功 / 1 失败 / 2 已有实例在跑）。
+#    分别跑三个命令会让"哪一步失败了"这件事散在三次退出码里。
+ExecStart=/opt/vigil/.venv/bin/vigil daily
+StandardOutput=journal
+StandardError=journal

@@ -1,0 +1,779 @@
+@import 'tailwindcss';
+
+/* ⛔ F1（终审）——`@source not`：Tailwind 的扫描根是 **Vite root = `web/`**，
+   于是 `web/tools/retheme_m7.py` 里**注释 / 映射表 / 正则中的类名字面量**也被
+   当成了「用到的类」，在 dist 里生成一批**没人用**的死规则（连 `text-vigil-fg/40`、
+   `rounded`、`.filter` 这种只出现在散文里的伪类名都有）。
+   路径基准是**本 CSS 文件所在目录**（`web/src`）⇒ `../tools` = `web/tools`。
+   A/B 实测（同一次提交、只差这一行）：规则数 274 → 196；逐条比对 selector+body，
+   `src` 侧没有一条规则被误删。 */
+@source not "../tools";
+
+/* ═══════════════════════════════════════════════════════════════════════
+   M7 · 主题层：两层结构（调用点的类名固定，值随主题走）
+   ───────────────────────────────────────────────────────────────────────
+   ⚠️ 还回原文件头那句（T1 全文替换时被误删，F3）——它仍是真的，而且是
+   「主题为什么写在 CSS 里」的答案：
+   Tailwind v4 是 **CSS-first** 配置，**没有 `tailwind.config.js`**；照 v3 的写法
+   建一个 config 文件**不会被读取**。要加主题就改这个文件，别去建 config。
+
+   ① 原始变量层（`--v-*`）：每套主题各给一份**完整**的值。`[data-theme='x']`
+      挂在 `<html>` 上；`:root, [data-theme='default']` 那一份就是默认主题。
+   ② 映射层（`@theme inline`）：把原始变量接进 Tailwind 的命名空间，于是
+      `bg-vigil-surface` / `text-vigil-fg-2` / `shadow-vigil-card` /
+      `backdrop-blur-vigil-panel` 这些**调用点的类名不变**，值随主题走；
+      `--radius-{md,lg,xl}` 是**覆盖内置刻度**，所以 `rounded-lg` 一个字都不用改。
+
+   ⚠️ 计划期实测（2026-09-22，vite build 产物 grep）——这几条都是踩过的：
+   * `@theme inline { --color-x: var(--v-x) }` ⇒ `.bg-x{background-color:var(--v-x)}`。
+     **必须**是 `inline`，否则产物里会烘进一个**构建期**的 hex fallback。
+   * ⛔ 由此：**语义 token 一律不许带透明度修饰符**（`bg-vigil-surface/50`）。
+     两条理由（F2 照实改写，见计划 §0 的 E3-补）：
+     ① 透明度是**主题资产**——它该由 token 的值决定（比如 `--v-header` 的值里
+        本身就写着 0.9），不该出现在调用点；否则「这套主题的顶栏多透」散在几十个
+        类名里，改一处漏一处。
+     ② 实测收窄：把 `--color-vigil-bg` 从字面量改成 `var(--v-bg)` **之后**，产物里
+        那条构建期烘死的 `#0b0f14e6` 就**消失了**，只剩 `color-mix(...)` 一支
+        ——而这一支**只在一个类上验过**（`bg-vigil-bg/90`）⇒ 把没完全验过的路关掉
+        （守卫有机械检查）。
+     ⛔ 别把「构建期必然烘死」写成普适结论：它**只对"值是字面量"那一支**成立。
+   * 覆盖内置刻度同样生效：实测 `.rounded-lg{border-radius:var(--v-probe-radius)}`。
+   * ⛔ 裸 `rounded` 是**字面量**（产物 `.rounded{border-radius:.25rem}`）、
+     `border` 的宽度也是（`.border-t{border-top-width:1px}`）⇒ 这两样**不可主题化**。
+     裸 `rounded` 由 T2 换成 `rounded-md`；「厚边框」由各主题的 `--v-shadow-card`
+     承担（粗野主义用 `4px 4px 0 0` 的硬阴影）。
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── ① 原始变量：默认主题（`:root` 与显式 `[data-theme='default']` 共用一块） ── */
+:root,
+[data-theme='default'] {
+  /* 页面与浮层底 */
+  --v-bg: #0b0f14;
+  --v-header: rgba(11, 15, 20, 0.9);
+  --v-page-image: none;
+  /* ⭐ M7-P4 新增：**固定壁纸层**（画在 `body::before` 上，见 ③ 的注释）。
+     三层 token 与 `--v-page-image` 分工的判据只有一条：
+       **几何图形 / 落日这类"美术资产"必须钉在视口里（滚动时不跑）** ⇒ 走 `--v-wallpaper`；
+       网格 / 噪点这类"纹理"本就该跟着内容滚 ⇒ 留在 `--v-page-image`。
+     `--v-wallpaper-size` / `--v-wallpaper-pos` 是**按层序的逗号列表**（CSS 硬约束：
+     短了循环、长了作废），所以不能写死在 `body::before{}` 里——蒸汽波的落日与天空
+     要各占一条、玻璃的两个圆各占一角。
+     ⛔ 不用 `background-attachment: fixed`：那个在 iOS 上会拖影/掉帧（见 ③ 的注释）。 */
+  --v-wallpaper: none;
+  --v-wallpaper-size: auto;
+  --v-wallpaper-pos: center top;
+  /* 文字四级（1 最强 → 4 最弱） */
+  --v-fg: #e6edf3;
+  --v-fg-2: rgba(255, 255, 255, 0.72);
+  --v-fg-3: rgba(255, 255, 255, 0.55);
+  --v-fg-4: rgba(255, 255, 255, 0.4);
+  /* 面（solid = 浮层用，必须不透明，否则菜单背后透出正文） */
+  --v-surface: rgba(255, 255, 255, 0.05);
+  --v-surface-2: rgba(255, 255, 255, 0.1);
+  --v-surface-solid: #141a22;
+  --v-inset: rgba(0, 0, 0, 0.3);
+  --v-border: rgba(255, 255, 255, 0.1);
+  --v-border-soft: rgba(255, 255, 255, 0.05);
+  /* 强调（链接 / 主按钮 / 选中态） */
+  --v-accent: #38bdf8;
+  --v-accent-soft: rgba(56, 189, 248, 0.2);
+  --v-accent-text: #bae6fd;
+  /* 危险（错误框 / 重试 / 危险按钮） */
+  --v-danger: #f87171;
+  --v-danger-soft: rgba(239, 68, 68, 0.1);
+  --v-danger-btn: rgba(239, 68, 68, 0.15);
+  --v-danger-btn-active: rgba(239, 68, 68, 0.25);
+  --v-danger-text: #fecaca;
+  /* 提醒（公告框 / 死线 / 警告按钮） */
+  --v-warn: #fbbf24;
+  --v-warn-soft: rgba(245, 158, 11, 0.1);
+  --v-warn-btn: rgba(245, 158, 11, 0.2);
+  --v-warn-text: #fde68a;
+  /* 结构：圆角（覆盖内置刻度）/ 阴影 / 模糊 / 字体 / 字距 */
+  --v-radius-md: 0.375rem;
+  --v-radius-lg: 0.5rem;
+  --v-radius-xl: 0.75rem;
+  --v-radius-full: 9999px; /* ⭐ R6：见 `@theme inline` 那条——与内置字面量同像素 */
+  --v-shadow-card: none;
+  --v-header-blur: 8px;
+  --v-panel-blur: 0px;
+  /* ⭐ F1（= 计划 E10）：`'Segoe UI'` 必须**字面第一**。T1 的目标是「默认主题与
+     今天**逐像素相同**」，而 M7 之前渲染拉丁文的就是 Segoe UI。
+     实测宽度指纹（Chromium；字符串 `AaBbGg123 !@#` 的像素宽）：
+       `"Segoe UI"` 单独用 = **146.221** ＝ Tailwind 旧栈 = 146.221（**相同**）
+       `system-ui`（本机 zh-CN Windows → 雅黑）= **158.857**
+     ⇒ 把 `system-ui` 放第一位，拉丁串宽 +8.6%、整页 +5px、**4.983% 像素不同**。
+     ⚠️ **只改这一块**：另外四套主题的字体栈是它们各自的设计值，归 T3。 */
+  --v-font-sans: 'Segoe UI', system-ui, -apple-system, 'Microsoft YaHei', sans-serif;
+  --v-tracking: normal;
+  /* ⭐ T7 追加：**动效也是主题身份的一部分**（每套主题各给一档性格）。
+     ⚠️ 与色板 / 圆角 / 字体同一条纪律：五块**每块都给一份**（parity 逐名比，缺一块即红）。
+     性格分工（设计意图）：
+       default   = **克制那一档**：有过渡、**不要涟漪**、按下不缩放；
+       material  = **原生安卓那一档**：有涟漪 + M3 曲线；`--v-press-scale` 仍是 1
+                   ——M3 的按钮本来就不缩放；
+       brutalism = `0ms`（粗野主义的正确回答是"别动"）；
+       vaporwave = 慢一档且**带回弹**（`cubic-bezier(0.34, 1.2, 0.64, 1)` 的 y>1 就是过冲）；
+       glass     = 柔和（时长长一点、曲线同默认，另加一点点按下形变）。 */
+  --v-motion-dur: 150ms;
+  --v-motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  --v-ripple: transparent;   /* transparent = 这套不要涟漪（RippleLayer 的整条机制因此自关） */
+  --v-ripple-dur: 300ms;     /* = 2 × --v-motion-dur：涟漪比状态过渡慢一档（各套同一条规则） */
+  --v-press-scale: 1;        /* 1 = 按下不缩放（恒等变换，零视觉影响） */
+}
+
+/* ── ② 映射层 ── */
+@theme inline {
+  /* ⚠️ 这里**没有** `--color-vigil-bg`：T1 曾按偏差 1 补过一条，T2 已删——
+     它的两个用户（`bg-vigil-bg/90` 与 App 根 div 的 `bg-vigil-bg`）都没了。
+     `--v-bg` 保留：`body` 与 `theme.ts` 的 `theme-color` 同步还要用。 */
+  --color-vigil-fg: var(--v-fg);
+  --color-vigil-fg-2: var(--v-fg-2);
+  --color-vigil-fg-3: var(--v-fg-3);
+  --color-vigil-fg-4: var(--v-fg-4);
+  --color-vigil-header: var(--v-header);
+  --color-vigil-surface: var(--v-surface);
+  --color-vigil-surface-2: var(--v-surface-2);
+  --color-vigil-surface-solid: var(--v-surface-solid);
+  --color-vigil-inset: var(--v-inset);
+  --color-vigil-border: var(--v-border);
+  --color-vigil-border-soft: var(--v-border-soft);
+  --color-vigil-accent: var(--v-accent);
+  --color-vigil-accent-soft: var(--v-accent-soft);
+  --color-vigil-accent-text: var(--v-accent-text);
+  --color-vigil-danger: var(--v-danger);
+  --color-vigil-danger-soft: var(--v-danger-soft);
+  --color-vigil-danger-btn: var(--v-danger-btn);
+  --color-vigil-danger-btn-active: var(--v-danger-btn-active);
+  --color-vigil-danger-text: var(--v-danger-text);
+  --color-vigil-warn: var(--v-warn);
+  --color-vigil-warn-soft: var(--v-warn-soft);
+  --color-vigil-warn-btn: var(--v-warn-btn);
+  --color-vigil-warn-text: var(--v-warn-text);
+
+  /* 覆盖内置刻度 ⇒ 调用点的 `rounded-md/lg/xl` 一个字都不用改 */
+  --radius-md: var(--v-radius-md);
+  --radius-lg: var(--v-radius-lg);
+  --radius-xl: var(--v-radius-xl);
+  /* ⭐ R6（fix 轮，controller 裁决；reviewer 已实测）——`rounded-full` 家族**是字面量**：
+     Tailwind 4.3.3 的内置 radius 刻度只到 `--radius-4xl`，`full` 来自 utilities 里的
+     `infinity * 1px`（实测产物 `.rounded-full{border-radius:2147483647px}`）⇒ 粗野主义下
+     5 处圆药丸漏网（`PersonPicker.tsx:85/119/131`、`Feed.tsx:417`、`Settings.tsx:34`）。
+     在 `@theme` 里补上 `--radius-full` 这个名字之后，**三个** utility（`rounded-full` /
+     `rounded-l-full` / `rounded-r-full`）一起变成 `var(--v-radius-full)`（4.3.3 实测）。
+     ⚠️ 五块**各自都给一份**（G3 + parity 用例逐名比 token 集合，缺一块即红）：
+     默认/material/vaporwave/glass 给 `9999px` —— 它**与今天同像素**：任何真实元素的尺寸下，
+     `9999px` 和 `2147483647px` 都会命中"半径超过半边长就整体等比缩到半边长"那条规则，
+     钳完都是半边长（默认块是冻结基线，所以这里只能给"等价"而不是"新观感"）；
+     brutalism 给 `0px`（方角，与它的 `--v-radius-md/lg/xl` 一致）。 */
+  --radius-full: var(--v-radius-full);
+
+  --shadow-vigil-card: var(--v-shadow-card);
+  --blur-vigil-header: var(--v-header-blur);
+  --blur-vigil-panel: var(--v-panel-blur);
+}
+
+/* ── ③ 页面层：不进 Tailwind（body / body::before 上一次用掉），因此能承载"美术资产"
+      ——渐变 / 网格纸 / 辉光都是任意 CSS，只受"每套主题各给一份"约束 ──
+   ⭐ M7-P4：页面资产拆成**两层**，分工见 ① 里那几行注释。
+   * `body` 背景 = `--v-page-image`（**滚动纹理层**）：跟着内容滚。各套给的都是渐变，
+     而**渐变图层的 `auto` 尺寸 = 定位区尺寸**（整个 body）⇒ 单个平铺块本来就盖满
+     整页，尺寸/位置**不需要** token（这正是 P2 那对 `--v-page-size/pos` 被撤掉的原因）。
+   * `body::before` = `--v-wallpaper`（**固定壁纸层**）。 */
+body {
+  background-color: var(--v-bg);
+  background-image: var(--v-page-image);
+  color: var(--v-fg);
+  font-family: var(--v-font-sans);
+  letter-spacing: var(--v-tracking);
+  min-height: 100vh;
+}
+
+/* 固定壁纸层：`position: fixed` 让它不随内容滚（几何图形/落日这类"美术资产"必须如此），
+   而**不用** `background-attachment: fixed`——那个在 iOS 上会拖影/掉帧。
+   `z-index:-1` 落在 body 内容之下、body 背景之上；`pointer-events:none` 不挡点击。
+
+   ⚠️ 叠放顺序（P4 的"两层"就是靠它成立的）：`--v-bg`（画布）→ `body` 的
+   `--v-page-image` → **`body::before` 的 `--v-wallpaper`** → 正文。即**壁纸压在纹理
+   之上**：蒸汽波的网格因此是从落日的天空"下面"透出来的（天空渐变留了透明度），
+   滚动时网格跟着动、太阳不动。
+   ⚠️ `background-repeat: no-repeat` 在这层是**必须**的：壁纸按 `--v-wallpaper-size`
+   定尺（蒸汽波是 `100% 62%`），而 `repeat` 是初值 ⇒ 不写它，每一屏都会再长出一颗
+   太阳（`100% 100%` 的玻璃两个圆看不出差别，但蒸汽波会**明显**是错的）。 */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--v-wallpaper);
+  background-size: var(--v-wallpaper-size);
+  background-position: var(--v-wallpaper-pos);
+  background-repeat: no-repeat;
+}
+
+/* ⚠️ 表单控件**不继承** font-family / letter-spacing（UA 样式给它们另设了一套）。
+   不写这一段，粗野主义的等宽字体只作用在正文上，而所有按钮/输入框还是系统字体
+   ——就是「主题看着没生效」的典型形态。
+
+   ⚠️⚠️ **必须待在 `@layer base` 里**（偏差 3，见 task-1-report.md）——计划期实测：
+   * Tailwind 预检**已经**发过同一条规则（产物 grep：`button,input,select,optgroup,
+     textarea{font:inherit;…letter-spacing:inherit;…}`），所以它本来就在 `base` 层；
+   * 不套 `@layer` 时，这条规则**不属于任何层**，而「未分层样式胜过一切分层样式」
+     ⇒ 它会把 utilities 层的 `text-xs` 压掉：DOM 指纹对比实测**8 个元素**
+     字号被改（撤销按钮 12px → 16px），整页高度也跟着变（1292 → 1305）。
+     这条规则是**声明式兜底**，不该是覆盖工具类的锤子。
+   * 放进 `@layer base` 后与预检同层 ⇒ `text-*` / `font-*` 照旧压得过它。 */
+@layer base {
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+    letter-spacing: inherit;
+  }
+
+  /* ⭐ T7（动效层）——以下四条与上面那条**同处一个 `@layer base`**，理由也同源：
+     放在 base 层，**故意**要覆盖它的 utility（例如 `transition-none`）仍然能赢；
+     不 layering 就会像 `font:inherit` 那次一样，把 utilities 一起压掉。 */
+
+  /* ① 交互元素的状态变化走**主题的**时长与曲线（而不是浏览器默认的 `ease`）。 */
+  button,
+  a,
+  input,
+  textarea,
+  select {
+    transition:
+      background-color var(--v-motion-dur) var(--v-motion-ease),
+      border-color var(--v-motion-dur) var(--v-motion-ease),
+      color var(--v-motion-dur) var(--v-motion-ease),
+      box-shadow var(--v-motion-dur) var(--v-motion-ease),
+      transform var(--v-motion-dur) var(--v-motion-ease);
+  }
+
+  /* ② 涟漪**不再**画在按钮上（v3 机制：载体搬到了 `document.body` 上的图层 —— 见 `RippleLayer.tsx`
+     顶部那三段"载体被谁抹掉"）。原来这条是为涟漪服务的两个属性，现在这样处置：
+     ⚠️ `overflow: hidden` **撤掉了**（本轮的决定）：它当初的唯一用途是"裁住按钮里的涟漪、
+     别让涟漪撑破圆角"，而这个职责已经**交给 `.vigil-ripple-box` 自己**（量了按钮的圆角后自裁）。
+     留着一个"裁掉该外溢的东西"的钳子在按钮上，风险是**静默的**：任何往按钮里放的浮层/
+     徽标/描边外溢一点就会被切掉一角，而那种问题在屏幕上只是"说不清哪里怪"。撤掉更安全。
+     ⚠️ `position: relative` **保留**：它现在没有涟漪用途了，但它是"按钮内定位后代的包含块"。
+     （本仓目前**没有**这样的后代：整棵组件树里只有两处定位元素——`ThemePicker.tsx:52` 的下拉菜单
+     （在它自己的 `div.relative` 里）与 `SwUpdateToast.tsx:21` 的吐司（`fixed`）——都不在按钮里；
+     其余 `position: absolute` 全在本文件里，就是下面涟漪那三条。）
+     它本身零视觉影响，删掉只会改变未来按钮内浮层的定位基准。
+     ⚠️ 顺带：`outline`（键盘焦点环）**本来就不受** `overflow: hidden` 影响，所以本轮撤与不撤
+     都不动无障碍——焦点环照旧由 `:focus-visible` 的 outline 承担。 */
+  button {
+    position: relative;
+  }
+
+  /* ③ 按下形变：default/material/brutalism 的 token 是 1 ⇒ 这条对它们是恒等变换（零视觉影响）。 */
+  button:active:not(:disabled) {
+    transform: scale(var(--v-press-scale));
+  }
+
+  /* ④ 涟漪本体：**`document.body` 上的图层**——不是伪元素、也不是按钮里的 span。
+     ⚠️ 为什么必须把载体搬出按钮（前两轮都栽在这上面，复现输出见 `task-7-fix2-report.md`）：
+       载体只要落在 React 管的节点上，就会被 React 的写入抹掉——
+       ① 插 `<span>` 进按钮 ⇒ 被 `setTextContent` 抹：文案一变，React 19.3.0 走
+          `node.textContent = text`（`react-dom-client.development.js:2846`；
+          快路径 `firstChild === lastChild && nodeType === 3` 因多出的 span 不成立）；
+       ② 把**类**挂在按钮上（v2 的 `button.vigil-rippling::after`）⇒ 被
+          `setValueForKnownAttribute`（同文件 :1698 的 `setAttribute('class', …)`）抹——
+          **点击就会改 className 的 chip（`views/Feed.tsx:416`）与 tab（`views/Settings.tsx:33`）**
+          上，涟漪恰好在点下去那一瞬间消失。
+     ⇒ 现在 React 既不创建也不 diff `body` 的子节点（它只认 `#root` 那棵树），
+       更不会去写它们的 `class` ⇒ **上面两条写入路径结构上都够不着**。
+
+     ⚠️ 三层分工（几何量全在**按钮**上量，坐标换算成**文档坐标**）：
+       `.vigil-ripple-layer`  覆盖全文档的容器，`pointer-events: none` ⇒ 不挡任何点击；
+       `.vigil-ripple-box`    **按按钮的实测几何**定位/定尺寸/定圆角，并**自己裁住**内层
+                              （= 原来按钮上 `overflow: hidden` 的那个职责搬到了
+                              "知道这颗按钮圆角是多少"的这一层）；
+       `.vigil-ripple`        真正做缩放的那颗圆，落点/直径由 JS 内联写死。
+     ⚠️ `overflow: hidden` 只落在 `.vigil-ripple-box` 上，**不落在图层上**：图层是
+       `inset: 0` 的整页盒子，在它上面裁等于给整页裁边（把 sticky 顶栏之外、
+       以及滚动到 body 盒子以外的东西一并切掉），而每个盒子已经各自裁好了 ⇒ 图层那条既
+       冗余又有害。（计划 §F1.1 最初写了图层 `overflow: hidden`，这里按上面这个理由去掉。） */
+
+  /* ⚠️ `z-index: 35` 是**从本仓既有层级推出来的**，不是随手取的数：顶栏 `<header>`
+     （`App.tsx:73`）是 `sticky z-10` **且带背景**（`bg-vigil-header` + `backdrop-blur-vigil-header`）
+     ⇒ 图层必须盖过它，否则**长在顶栏里的按钮**（↶ 撤销 / 四个 tab / 🎨——用户最常点的位置）
+     的涟漪会被顶栏底色整片盖住，等于没做。另有两个既有层：主题菜单 `z-30`
+     （`ThemePicker.tsx:52`）与更新提示 `z-40`（`SwUpdateToast.tsx:21`）。
+     ⇒ **35 = 高于菜单(30)、低于吐司(40)**。
+     ⛔ 改动上面任何一个既有 z-index 都要回来复看这个数（它们散在另外三个文件里，最容易漂移）。 */
+  .vigil-ripple-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 35;
+    pointer-events: none;
+  }
+
+  .vigil-ripple-box {
+    position: absolute;
+    overflow: hidden;
+    background: transparent;
+  }
+
+  .vigil-ripple {
+    position: absolute;
+    border-radius: 50%;
+    background: var(--v-ripple);
+    pointer-events: none;
+  }
+
+  /* ⚠️ `@keyframes` 与上面三条**同层**（`animation-name` 本身不受层影响，放一起只是为了让
+     "改类名却忘改动画名"这类漂移一眼可见）。
+     ⚠️ **它现在没有任何规则引用**：动画由 `RippleLayer.tsx` 的 WAAPI（`inner.animate`）承担，
+     时长/曲线也由 JS 从 `--v-ripple-dur` / `--v-motion-ease` 读出。保留它是因为它是涟漪的
+     **规格说明**——两个关键帧、"只动 `transform` / `opacity`（合成器属性 ⇒ 不触发布局）"
+     这条约束在这里一眼可见。⛔ 它必须与 `RippleLayer.tsx` 的 `RIPPLE_KEYFRAMES` 逐字同值，
+     改一处就要同步另一处（两边都写了这条互指）。 */
+  @keyframes vigil-ripple {
+    from {
+      transform: scale(0);
+      opacity: 0.9;
+    }
+    to {
+      transform: scale(1);
+      opacity: 0;
+    }
+  }
+
+  /* ⑤ 系统里关了动效 ⇒ 一律不做。**这条不是可选项**（无障碍）。 */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* ── ④ 另外五套主题：T3 定稿的完整值（**六块各给全同一套 token、一个不少**——T7 又加了
+      `--v-motion-dur` / `--v-motion-ease` / `--v-ripple` / `--v-press-scale` 四条，
+      T7 fix 轮再加 `--v-ripple-dur` 一条；**六块每次都是一起加**，parity 仍逐名相等）。
+      ⛔ **本行起不再写"每块有几个 token"**：那个数已经烂过一次（T8-1 给六块各加了
+      `--v-argus` 而没改它），而它**没有任何判据**——注释里的数是唯一没人守的真相。
+      要这个数就**现数**（`themeTokens.test.ts` 的 parity 用例逐名比六块的 token 集合，
+      缺一块即红；或剥掉注释后数 `--v-[a-z0-9-]+\s*:` 的出现次数）。
+      历史（只作考古，别当现值）：T3 时 33、T7 前 37、T7 fix 轮后 42。
+      ⚠️ 每套都**显式给全**、不靠继承（G3）：CSS 里「没写」与「想继承」长得一样，
+      而继承的后果是「浅色主题里冒出默认主题的深色」——`themeTokens.test.ts`
+      的 parity 测试逐名比对就是为了挡这一条。
+      ⚠️ 六块都**不是**「只换颜色」：圆角 / 阴影 / 模糊 / 字体 / 字距 / 页面资产
+      （`--v-page-image` 滚动纹理层，`--v-wallpaper` + `--v-wallpaper-size` /
+      `--v-wallpaper-pos` 固定壁纸层）也在各自的值里，这才是「六套主题」而不只是六个色板。
+      ⚠️ 这里的字体栈是各主题的**设计值**；只有默认块受 E10 约束（`'Segoe UI'`
+      必须字面第一，保基线），**其余各套**都有各自的字体判据（如粗野主义 / ARGUS 用等宽）。 ── */
+[data-theme='material'] {
+  /* Material 3 浅色（**P1 修订：更素的 M3 —— 深字配浅底**）
+     ⚠️ 用户原话：「material design 不够谷歌，颜色不够素」。两处病根都在**容器色家族选错**：
+     ① `--v-accent-soft` 原来用 `#eaddff`（primary-container，**紫得发亮**）⇒ 整页最跳的
+        那块颜色出现在每个按钮上；
+     ② `--v-accent-text` / `--v-danger-text` 用的是 on-surface 一侧的**深紫/深红**没错，
+        但底是上面那个高饱和容器 ⇒ 面偏色。
+     修订：软底与容器统一改用 M3 的 **secondary-container / error-container**（`#e8def8` /
+     `#f9dedc`），文字改用它们各自的 **on-\*** （`#1d192b` / `#410e0b`，都是**深字**）——
+     这就是"深字配浅底"与原来"浅字配浅底"（默认/蒸汽波/毛玻璃那三套的方向）的分野；
+     琥珀同时去饱和（`#8b5000`/`#ffdeaa` → `#7a5900`/`#f7e7cf`，M3 的 warn 家族本就没有
+     那么亮的黄）。底 `#fdfbff` → `#fef7ff`（surface 家族的中性紫调，更接近 M3 的
+     surfaceContainerLowest）。
+     ⚠️ 结构值（radius / shadow / blur / font / tracking）**一个字没动**——P1 只换色。 */
+  --v-bg: #fef7ff;
+  --v-header: rgba(254, 247, 255, 0.92);
+  --v-page-image: none;
+  --v-wallpaper: none; /* P4：无壁纸（M3 的底就是纯色 + tonal surface） */
+  --v-wallpaper-size: auto;
+  --v-wallpaper-pos: center top;
+  --v-fg: #1d1b20;
+  --v-fg-2: #49454f;
+  --v-fg-3: #5f5c66;
+  --v-fg-4: #79747e;
+  --v-surface: #f7f2fa;
+  --v-surface-2: #e8def8; /* M3 secondary-container */
+  --v-surface-solid: #ffffff;
+  --v-inset: #ece6f0;
+  --v-border: #cac4d0;
+  --v-border-soft: #e7e0ec;
+  --v-accent: #6750a4;
+  --v-accent-soft: #e8def8; /* M3 secondary-container（= --v-surface-2，软底与选中底同源） */
+  --v-accent-text: #1d192b; /* on-secondary-container：**深字** */
+  --v-danger: #b3261e;
+  --v-danger-soft: #f9dedc;
+  --v-danger-btn: #f9dedc;
+  --v-danger-btn-active: #f2b8b5;
+  --v-danger-text: #410e0b; /* on-error-container：**深字** */
+  --v-warn: #7a5900;
+  --v-warn-soft: #f7e7cf;
+  --v-warn-btn: #f7e7cf;
+  --v-warn-text: #4b3600;
+  --v-radius-md: 0.5rem;
+  --v-radius-lg: 0.75rem;
+  --v-radius-xl: 0.75rem;
+  --v-radius-full: 9999px; /* ⭐ R6：药丸刻度，与默认块同值（Material 3 的 chip 就是全圆） */
+  --v-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+  --v-header-blur: 0px;
+  --v-panel-blur: 0px;
+  --v-font-sans: 'Roboto', system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --v-tracking: normal;
+  /* ⭐ T7 动效：**原生安卓那一档**——M3 标准时长/曲线 + 真涟漪；按下仍不缩放（M3 本来就如此）。 */
+  --v-motion-dur: 180ms;
+  --v-motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  --v-ripple: rgba(103, 80, 164, 0.22); /* M3 primary 的 22%，与 --v-accent 同源 */
+  --v-ripple-dur: 360ms; /* = 2 × 180ms */
+  --v-press-scale: 1;
+}
+
+[data-theme='brutalism'] {
+  /* 高对比 + 硬阴影 + 方角 + 等宽：选中态纯黄，按钮纯黑底白字 */
+  --v-bg: #f2f0eb;
+  --v-header: rgba(242, 240, 235, 0.96);
+  --v-page-image: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 24px);
+  --v-wallpaper: none; /* P4：无壁纸——网格纸**是纹理**（该跟着内容滚），所以留 `--v-page-image` */
+  --v-wallpaper-size: auto;
+  --v-wallpaper-pos: center top;
+  --v-fg: #0a0a0a;
+  --v-fg-2: #262626;
+  --v-fg-3: #404040;
+  --v-fg-4: #5c5c5c;
+  --v-surface: #ffffff;
+  --v-surface-2: #ffe600;
+  --v-surface-solid: #ffffff;
+  --v-inset: #ffffff;
+  --v-border: #0a0a0a;
+  --v-border-soft: #9a9a9a;
+  --v-accent: #0a0a0a;
+  --v-accent-soft: #0a0a0a;
+  --v-accent-text: #ffffff;
+  --v-danger: #d40000;
+  --v-danger-soft: #ffd9d9;
+  --v-danger-btn: #d40000;
+  --v-danger-btn-active: #8f0000;
+  --v-danger-text: #ffffff;
+  --v-warn: #7a5c00;
+  --v-warn-soft: #ffe600;
+  --v-warn-btn: #ffe600;
+  --v-warn-text: #4a3800;
+  --v-radius-md: 0px;
+  --v-radius-lg: 0px;
+  --v-radius-xl: 0px;
+  --v-radius-full: 0px; /* ⭐ R6：**方角到底**——不加这条，此主题仍有 5 处圆药丸（见 @theme inline） */
+  --v-shadow-card: 4px 4px 0 0 #0a0a0a;
+  --v-header-blur: 0px;
+  --v-panel-blur: 0px;
+  --v-font-sans: ui-monospace, 'Cascadia Mono', Consolas, 'Microsoft YaHei', monospace;
+  --v-tracking: 0.02em;
+  /* ⭐ T7 动效：**粗野主义的正确回答是"别动"**——0ms 是这套主题的判据（可机械验证）。 */
+  --v-motion-dur: 0ms;
+  --v-motion-ease: linear;
+  --v-ripple: transparent;
+  --v-ripple-dur: 0ms; /* = 2 × 0ms：这套连"慢一档"都没有对象（涟漪本身就没开） */
+  --v-press-scale: 1;
+}
+
+[data-theme='vaporwave'] {
+  /* 近黑底 + 粉/青霓虹：软底（accent/danger/warn-soft）低透明度，靠 --v-shadow-card 的
+     辉光收边；**面板是暗玻璃**（R7，理由见下）。
+     ── P2 修订（用户原话：「经典的夕阳西下，霓虹色 + 黑色底色网格」）──
+     `--v-bg` 从 `#1a0b2e`（紫）压到 `#0a0118`（**更近黑**），`--v-header` 同比调深
+     （`rgba(26,11,46,.88)` → `rgba(10,1,24,.82)`，透一点让霓虹网格从顶栏下透出来）。
+
+     ── P4 修订：这条分界线就是"资产 vs 纹理" ──
+       `--v-wallpaper`（**固定层**，`body::before`，不随滚动跑）：② 天空渐变 + ① 落日。
+         落日是 SVG data URI：一颗带渐变的圆 + 7 条**底色横条**切它的下半部。
+         为什么必须是 SVG：CSS 渐变做不出"被横条切开的圆"——`radial-gradient` 只有
+         同心圆环，要做出横条得靠 `repeating-linear-gradient` 去过采样再对齐圆，
+         既脆又没法保证圆的位置。SVG 里 `clipPath` + `rect` 是十来个字符的事。
+         尺寸用**百分比** `100% 62%`（不用 `px` / `vh`：手机上地址栏收起会让 vh 抖，
+         一个固定的壁纸跟着跳最扎眼）。两层都占顶部同一条，所以 pos 都是 `center top`。
+       `--v-page-image`（**滚动纹理层**，`body`，跟着内容滚）：③④ 横向 / 纵向霓虹网格。
+         两层都是渐变 ⇒ `auto` 尺寸 = 定位区尺寸（整页），**不需要** size/pos token。
+     ⇒ 两层从此**各自独立**：壁纸层的"钉在视口里"由 `position: fixed` **保证**（← 这句
+       可证）；网格层仍画在 `body` 背景上，它的滚动行为与 P2 之前**一字未改**
+       （⚠️ `body` 背景是**画布背景**——`html` 没给背景时 body 的会传播上去，
+       实际滚动表现属于浏览器行为，**无浏览器无法核实**，报告里如实列为未验证项）。
+       另外天空渐变留了透明度，网格因此能从天下透出来。
+
+     ⚠️ data URI 的转义（只有这三样是必须的，少一样就整张图**静默不显示**）：
+     `#` → `%23`（不转义的话 `#` 起 **fragment**，SVG 被从那里截断：`url(%23sg)` 的
+     颜色引用与两个 `stop-color` 都会丢）、`<` → `%3C`、`>` → `%3E`。
+     另外：整个 URI 用**单引号**包起来，里面的 `(` `)`（`url(%23sg)`）才是字符串内容
+     而不是 CSS 函数括号；`"` 一律写成 `%22`，空格一律 `%20`（不留裸空格/裸引号，
+     免得换个工具链解析就变脸）。
+     ⛔ 值里**不许出现 `;`**：`themeTokens.test.ts` 的取值助手按 `[^;]+` 截断，
+     写 `data:image/svg+xml;utf8,` 或内联 `style="a:b;c:d"` 会让它读到半截（实测过）。 */
+  --v-bg: #0a0118;
+  --v-header: rgba(10, 1, 24, 0.82);
+  --v-page-image: repeating-linear-gradient(0deg, rgba(0, 229, 255, 0.16) 0 1px, transparent 1px 30px),
+    repeating-linear-gradient(90deg, rgba(255, 52, 182, 0.14) 0 1px, transparent 1px 30px);
+  --v-wallpaper: url('data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%201200%20520%22%20preserveAspectRatio=%22xMidYMid%20meet%22%3E%3Cdefs%3E%3ClinearGradient%20id=%22sg%22%20x1=%220%22%20y1=%220%22%20x2=%220%22%20y2=%221%22%3E%3Cstop%20offset=%220%22%20stop-color=%22%23fff3a3%22/%3E%3Cstop%20offset=%220.35%22%20stop-color=%22%23ffb347%22/%3E%3Cstop%20offset=%220.65%22%20stop-color=%22%23ff5e8a%22/%3E%3Cstop%20offset=%221%22%20stop-color=%22%23ff2d95%22/%3E%3C/linearGradient%3E%3CclipPath%20id=%22sc%22%3E%3Ccircle%20cx=%22600%22%20cy=%22316%22%20r=%22210%22/%3E%3C/clipPath%3E%3C/defs%3E%3Ccircle%20cx=%22600%22%20cy=%22316%22%20r=%22210%22%20fill=%22url(%23sg)%22/%3E%3Cg%20clip-path=%22url(%23sc)%22%20fill=%22%230a0118%22%3E%3Crect%20x=%22380%22%20y=%22316%22%20width=%22440%22%20height=%226%22/%3E%3Crect%20x=%22380%22%20y=%22336%22%20width=%22440%22%20height=%229%22/%3E%3Crect%20x=%22380%22%20y=%22360%22%20width=%22440%22%20height=%2212%22/%3E%3Crect%20x=%22380%22%20y=%22388%22%20width=%22440%22%20height=%2216%22/%3E%3Crect%20x=%22380%22%20y=%22421%22%20width=%22440%22%20height=%2220%22/%3E%3Crect%20x=%22380%22%20y=%22459%22%20width=%22440%22%20height=%2224%22/%3E%3Crect%20x=%22380%22%20y=%22503%22%20width=%22440%22%20height=%2240%22/%3E%3C/g%3E%3C/svg%3E'),
+    linear-gradient(180deg, rgba(45, 10, 70, 0.95) 0%, rgba(122, 28, 88, 0.82) 45%, rgba(196, 45, 120, 0.62) 65%, rgba(10, 1, 24, 1) 100%);
+  --v-wallpaper-size: 100% 62%, 100% 62%;
+  --v-wallpaper-pos: center top, center top;
+  --v-fg: #f6e9ff;
+  --v-fg-2: #dcc4ff;
+  --v-fg-3: #b78fe0;
+  --v-fg-4: #8f6cb5;
+  /* ⭐ R7（fix 轮，controller 裁决）——**面板改暗玻璃**（与毛玻璃 P5-③ 同一处置模式）。
+     ⛔ 病根是判据的**盲点**，不是值写错了：`themePalette.test.ts` 只把面合成到
+     `--v-bg`（#0a0118，近黑）**再算对比度——它不知道壁纸层**。而 P4 把落日**固定到
+     视口**之后，首屏那张卡片正压在太阳的**上半部**（最亮的一像素 = SVG 渐变 offset 0
+     的 `#fff3a3`）。改前**实测**（底取那一颗亮像素）：正文 **1.04:1**、弱化 **1.77:1**、
+     软底文字 1.04、危险按钮 1.02 —— **屏幕上读不出来而断言 8/8 全绿**。
+     （同一条近似 glass 块尾也写着；P5 之后它一样要紧。）
+
+     处置只有一条：**有亮壁纸的主题，面板必须是暗的**。亮底上压不住字——把面板从
+     "半透明白"（rgba(255,255,255,.06)）换成"半透明暗"才既留得住壁纸（能透出去）
+     又压得住亮像素（白字读得出来）。这正是 glass 从"极光底"换成"几何底"时一起动的
+     那一半（⭐ F7，终审 fix 轮照实改写：glass 那一半现在是 `rgba(18, 22, 44, 0.6)`——
+     P5 写的是 `.50`，**R8 按判据把 alpha 提到了 .6**，所以 `.50` 这个值在本文件里
+     **已经不存在了**；翻旧注释别拿它当现值），两套主题的**形状**因此是对齐的。
+     取值按判据定（4.5 / 3 一个字没改）：暗基 alpha 越大越安全，但面板在近黑底上会
+     越发看不出来 ⇒ 取 **0.78 / 0.84**（`--v-surface-2` 是选中态，多带一点粉紫才留得住
+     "选中"这个信号）。改后**实测**（仍取最亮壁纸像素 `#fff3a3`，两个面里更差的那个）：
+       正文 **8.40**（--v-surface-2）/ 弱化 fg-3 **3.74**（--v-surface-2）/
+       软底文字 **6.12**（--v-surface）/ 危险按钮 **5.44**（--v-surface-2）/
+       强调 `--v-accent` 当文字 **6.37**（--v-surface-2）。
+     ⚠️ 字色 / 霓虹边框 / 圆角 / 辉光 / 字体**一个字没动**；`--v-surface-solid` 仍是
+     不透明的 `#241040`（浮层用，菜单背后不许透出正文）。 */
+  --v-surface: rgba(26, 8, 48, 0.78);
+  --v-surface-2: rgba(64, 16, 82, 0.84);
+  --v-surface-solid: #241040;
+  /* 同一处置：`rgba(0,0,0,.35)` 是**只压暗一点**的遮罩，压在落日上等于没压（正文 2.3:1）
+     ⇒ 它也得是"暗玻璃"而不是"轻遮罩"。inset 是凹槽（输入框 / 小标签的底），比面板更暗。 */
+  --v-inset: rgba(4, 0, 12, 0.78);
+  --v-border: rgba(0, 229, 255, 0.45);
+  --v-border-soft: rgba(0, 229, 255, 0.22);
+  --v-accent: #00e5ff;
+  --v-accent-soft: rgba(0, 229, 255, 0.18);
+  --v-accent-text: #b3f7ff;
+  --v-danger: #ff5c8a;
+  --v-danger-soft: rgba(255, 92, 138, 0.16);
+  --v-danger-btn: rgba(255, 92, 138, 0.22);
+  --v-danger-btn-active: rgba(255, 92, 138, 0.34);
+  --v-danger-text: #ffd0dd;
+  --v-warn: #ffd166;
+  --v-warn-soft: rgba(255, 209, 102, 0.16);
+  --v-warn-btn: rgba(255, 209, 102, 0.24);
+  --v-warn-text: #fff0c2;
+  --v-radius-md: 0.5rem;
+  --v-radius-lg: 0.75rem;
+  --v-radius-xl: 1rem;
+  --v-radius-full: 9999px; /* ⭐ R6：药丸刻度，与默认块同值 */
+  --v-shadow-card: 0 0 0 1px rgba(0, 229, 255, 0.28), 0 0 20px rgba(255, 52, 182, 0.35);
+  --v-header-blur: 12px;
+  --v-panel-blur: 6px;
+  --v-font-sans: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --v-tracking: 0.02em;
+  /* ⭐ T7 动效：慢一档 + **带回弹**（`cubic-bezier(0.34, 1.2, …)` 的 y>1 = 过冲）+
+     青色的涟漪 + 按下缩到 0.98——与"霓虹在慢镜里晃动"这套主题同调。 */
+  --v-motion-dur: 320ms;
+  --v-motion-ease: cubic-bezier(0.34, 1.2, 0.64, 1);
+  --v-ripple: rgba(0, 229, 255, 0.28); /* 与 --v-accent 同一个青 */
+  --v-ripple-dur: 640ms; /* = 2 × 320ms */
+  --v-press-scale: 0.98;
+}
+
+[data-theme='glass'] {
+  /* 深藏青底 + 几何图形壁纸 + **暗玻璃**面板 + 大模糊。
+     ── P5 修订（用户原话：「背景图并非简单的颜色渐变，而是…有一些有趣的几何图像…
+        现代很多手机的壁纸的设计语言」，并给了两张参考图：深藏青底 + 左上橙红大圆 +
+        右下青绿大圆；紫色层叠弧线）──
+     ① `--v-bg` `#241447`（紫）→ `#0b1020`（**深藏青**）：紫是旧身份的残留，用户点名的
+        是藏青底。
+     ② **底不再是"一片渐变"**：原来那四层极光（紫/粉/青 radial + 对角 linear）整个
+        **撤掉**，`--v-page-image` 回到 `none`；几何图形改走 `--v-wallpaper`（P4 的固定
+        层）——**大色块是"美术资产"**，滚动时跑掉就不像壁纸了。
+        写法用 `ellipse N% M% at x% y%`（**百分比，不用 vh/vmin**：手机上地址栏收起会
+        让 vh 抖一下，壁纸跟着跳）。两个圆一左上橙红、一右下青绿，与参考图同构。
+     ③ ⛔ **面板必须改成"暗玻璃"**（下面那 6 个 面/边框 token）：原来面板是
+        `rgba(255,255,255,.14)` 的**亮**玻璃——白字压在壁纸的亮橙圆上会糊成一片，
+        "玻璃"看着像雾。改成**暗色半透明**（压在亮色圆上仍然压得住 ⇒ 白字读得出来），
+        这正是这套主题从"极光底"换成"几何底"之后必须一起动的那一半。
+        ⚠️ `--v-header` 一并从紫色系 `rgba(36,20,71,.55)` 换成藏青系
+        `rgba(11,16,32,.62)`——它不在 P5 点名的清单里，但没有它，藏青底上会留一条
+        紫顶栏（同 ①的"残留"）。（如实记在 theme-revision-report.md 的偏差里。）
+     ⭐ R8（收尾轮）：这条"已知近似"**已经补上判据**——`themePalette.test.ts` 的
+        `WALLPAPER_BRIGHTEST` 表 + 一条断言，把面**合成到各自壁纸的最亮像素**上再算
+        4.5 / 3（阈值一个字没改）。
+        ⛔ 顺带纠正本段旧话里的一处**错**：从前这里写"壁纸的亮橙圆 `#ffb01f` 是这套
+        主题里最亮的一块"——**不是**。WCAG 相对亮度：亮橙 **0.524**、右下青绿圆的 stop
+        `#22ff88` **0.736**。⇒ "最亮像素"这半个语境判错了，照它定出来的 alpha 自然
+        不达标（实测见 ③ 那几条）。表里 glass 记的最亮像素是 `#22ff88`。 */
+  --v-bg: #0b1020;
+  --v-header: rgba(11, 16, 32, 0.62);
+  --v-page-image: none;
+  --v-wallpaper:
+    radial-gradient(ellipse 52% 40% at 4% 2%, #ffb01f 0%, #ff6a1f 34%, #ff2d78 58%, rgba(255, 45, 120, 0) 70%),
+    radial-gradient(ellipse 58% 44% at 98% 82%, #22d3ee 0%, #3b82f6 46%, #22ff88 74%, rgba(34, 255, 136, 0) 84%);
+  --v-wallpaper-size: 100% 100%, 100% 100%;
+  --v-wallpaper-pos: 0 0, 0 0;
+  --v-fg: #ffffff;
+  --v-fg-2: rgba(255, 255, 255, 0.82);
+  --v-fg-3: rgba(255, 255, 255, 0.7);
+  --v-fg-4: rgba(255, 255, 255, 0.55);
+  /* ⭐ P5-③ + **R8**：**暗玻璃**（理由见块首注释）——亮玻璃改暗玻璃，白字才压得住背后的亮色圆。
+     ⛔ R8（controller 裁决，2026-09-22 收尾轮）——P5-③ 只做对了一半：它确实把"亮玻璃"
+     换成了"暗玻璃"，**但 alpha 是拿错的像素定的**。P5 当时取的是**橙圆核心 `#ffb01f`**
+     （"壁纸最亮的一块"），而它**不是**最亮的（0.524 vs `#22ff88` 的 0.736）。
+     实测（把面合成到 `#22ff88` 上，本文件旧值）：
+       `--v-surface`   **fg 4.32 / fg-3 2.93**    ← 两个都不达标（4.5 / 3）
+       `--v-surface-2` **fg 4.23 / fg-3 2.89**    ← 两个都不达标
+     而当时的断言只拿 `--v-bg`（深藏青）当底算，**它不知道壁纸图层** ⇒ 屏幕上读不出来的
+     字和"全绿"的断言之间没有关系。这正是 **E14**：判据的"语境模型"漏了整个图层，就等于没判。
+     ⚠️ 定值原则（与蒸汽波 R7 **同一处置模式**）：**有亮壁纸的主题，所有当文字底的面
+     都必须是暗的**。亮底上压不住字；把面板从"半透明白"换成"半透明暗"才既留得住壁纸、
+     又压得住最亮的像素。取值按判据定（阈值 4.5 / 3 **一个字没动**，只改值），扫描表见
+     `python _smoke/m7-r8-contrast.py --sweep`；alpha 越大越安全，但面板在深色底上会越发
+     看不出来 ⇒ 取到本轮 **0.60 / 0.68**（`--v-surface-2` 是**选中态**，底色调深一点蓝紫，
+     才留得住"选中"这个信号）。**改后实测（仍压在 `#22ff88` 上）**：
+       `--v-surface`   **fg 5.80 / fg-3 3.72**
+       `--v-surface-2` **fg 6.03 / fg-3 3.86**   ⇒ 四个数里最小值 **3.72**（判据 3）。
+     ⚠️ 字色 / 霓虹边框 / 圆角 / 阴影 / 模糊 / 字体**一个字没动**；`--v-surface-solid` 仍是
+     不透明的 `#1b2140`（浮层用，菜单背后不许透出正文）。 */
+  --v-surface: rgba(18, 22, 44, 0.6);
+  --v-surface-2: rgba(34, 42, 80, 0.68);
+  --v-surface-solid: #1b2140;
+  /* 同一处置：inset 是凹槽（输入框 / 小标签的底），比面板**更暗**才对——`rgba(10,14,30,.5)`
+     压在 `#22ff88` 上只有 fg 4.57 / fg-3 3.06（勉强擦线）。改它的时候它**不在**那条断言里
+     （判据当时只点名 `--v-surface` / `--v-surface-2`）⇒ 当时是靠"屏幕上是同一件事"这句
+     人话一起改的，**没有任何东西守它**；⭐ F6（终审 fix 轮）已把它纳入
+     `themePalette.test.ts` 的壁纸可读性判据（同一颗最亮像素、阈值 4.5 / 3 不变）
+     ⇒ 以后再退化会红。改后 fg 5.49 / fg-3 3.54。 */
+  --v-inset: rgba(8, 10, 24, 0.55);
+  --v-border: rgba(255, 255, 255, 0.22);
+  --v-border-soft: rgba(255, 255, 255, 0.12);
+  --v-accent: #a5f3fc;
+  --v-accent-soft: rgba(165, 243, 252, 0.18);
+  --v-accent-text: #cffafe;
+  --v-danger: #ffa8b8;
+  --v-danger-soft: rgba(255, 128, 149, 0.18);
+  --v-danger-btn: rgba(255, 128, 149, 0.28);
+  --v-danger-btn-active: rgba(255, 128, 149, 0.42);
+  --v-danger-text: #ffffff;
+  --v-warn: #ffe08a;
+  --v-warn-soft: rgba(255, 224, 138, 0.18);
+  --v-warn-btn: rgba(255, 224, 138, 0.26);
+  --v-warn-text: #fff6da;
+  --v-radius-md: 0.5rem;
+  --v-radius-lg: 0.75rem;
+  --v-radius-xl: 1rem;
+  --v-radius-full: 9999px; /* ⭐ R6：药丸刻度，与默认块同值 */
+  --v-shadow-card: 0 8px 32px rgba(12, 8, 32, 0.45);
+  --v-header-blur: 18px;
+  --v-panel-blur: 14px;
+  --v-font-sans: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --v-tracking: normal;
+  /* ⭐ T7 动效：柔和那一档——时长介于默认与蒸汽波之间、曲线同默认，白涟漪 + 一点点按下形变。 */
+  --v-motion-dur: 240ms;
+  --v-motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  --v-ripple: rgba(255, 255, 255, 0.25);
+  --v-ripple-dur: 480ms; /* = 2 × 240ms */
+  --v-press-scale: 0.98;
+}
+
+[data-theme='argus'] {
+  /* ═══ Project ARGUS（T8-1）：**终端**那一档 ═══
+     用户原话：「加上看起来像终端一样的主题（纯黑为底色…一定要大变样…但功能不能少）」。
+     ⭐ I2（delta 终审 Important）：这张块负责的是「**默认色 + 全部结构**」，**不是**"只负责默认色"。
+     实测过的分工（此前那句话是**错的论证**，它下一个读者是改主题的人）：
+       · **颜色那一族**（`--v-fg*` / `--v-surface*` / `--v-border*` / `--v-accent*`）——
+         本块提供的是**首帧**与 `clearArgusColor()` 之后的**回落值**；而**稳态**恒由
+         `src/argusColor.ts` 的派生写进 `:root` 的**行内**变量（行内赢过本块）。默认色是荧光绿。
+       · **结构那一族**（`--v-danger` / `--v-warn` / `--v-radius-*` / `--v-motion-dur` /
+         `--v-shadow-card` / `--v-font-sans` …）——**只**来自本块：`/color` **永远**碰不到它们
+         （`deriveArgusVars` 只算颜色那 12 个键）。说"本块只负责默认色"会让人以为
+         这些结构 token 在别处也有一份、或者 `/color` 会带着它们一起变——都不是。
+
+     ⚠️ **为什么默认值也要在这块里给全**（而不是"反正会被行内覆盖"）：① `/color` 之前的
+     首帧、以及 `clearArgusColor()` 之后，屏幕上的字色就是这里这份；② `themePalette.test.ts`
+     的对比度判据**只读这张块**（它不跑 JS）⇒ 这里少给一个，判据就变成"验的是不存在的值"。
+
+     ⚠️ **token 集合与其余五块逐名相等**（parity 会逐字比）。
+     ⭐ **本块那 12 个颜色值与 `deriveArgusVars(ARGUS_DEFAULT)` 的逐字一致有判据**：
+     `--v-fg` / `--v-fg-2` / `--v-fg-3` / `--v-fg-4` / `--v-surface` / `--v-surface-2` /
+     `--v-inset` / `--v-border` / `--v-border-soft` / `--v-accent` / `--v-accent-soft` /
+     `--v-accent-text`（**恰好这 12 个**——⚠️ **不含** `--v-surface-solid`：它是"浮层必须
+     不透明"那条的，函数算出来的是半透明，两边**故意不同**，别把它塞进那张表）。
+     `argusColor.test.ts` 的「CSS 的 argus 块 ≡ deriveArgusVars(ARGUS_DEFAULT)」那条
+     会读本块并与函数输出**逐字比**（两处真相必须机械对上：本块只在首帧与
+     `themePalette.test.ts` 里出现，稳态值恒来自函数）。改这里的值就要同改那边。 */
+  /* 纯黑底 + 几乎不透明的顶栏：**任何一点灰都会破坏"这是终端"**（用 `#000000` 而不是
+     "很深的灰"，是因为 `/color` 的亮度判据 `MIN_LUMINANCE` 就是**对纯黑底**反推的：
+     底一变，那个阈值与 `themePalette.test.ts` 的对比度数字就都不作数了）。 */
+  --v-bg: #000000;
+  --v-header: rgba(0, 0, 0, 0.92);
+  --v-page-image: none;
+  /* 壁纸三件套（P4 的固定层）：终端不要美术资产 ⇒ 三份都是"无"。 */
+  --v-wallpaper: none;
+  --v-wallpaper-size: auto;
+  --v-wallpaper-pos: center top;
+  /* 字色**就是**主题色（`/color` 覆盖的就是这一族）；四级仍靠降透明拉开层次。
+     ⚠️ 这里写死的四级值必须与 `deriveArgusVars()` 的 alpha 逐位一致
+     （0.78 / 0.58 / 0.38）——不一致的话，"没 /color 过"与"/color 成同一个色"会长得不一样。 */
+  --v-fg: #00ff9c;
+  --v-fg-2: rgba(0, 255, 156, 0.78);
+  --v-fg-3: rgba(0, 255, 156, 0.58);
+  --v-fg-4: rgba(0, 255, 156, 0.38);
+  /* 面：终端没有"卡片浮起来"这回事，面只是极淡的一层辉光（alpha 与派生表一致：0.06/0.14）。 */
+  --v-surface: rgba(0, 255, 156, 0.06);
+  --v-surface-2: rgba(0, 255, 156, 0.14);
+  /* ⚠️ 浮层**必须不透明**（菜单背后不许透出正文）——`#050b09` 是"黑里带一点绿"，
+     不是 `--v-bg` 的纯黑：菜单压在纯黑上时，靠这一点点色差才分得开。 */
+  --v-surface-solid: #050b09;
+  --v-inset: rgba(0, 255, 156, 0.03);
+  --v-border: rgba(0, 255, 156, 0.45);
+  --v-border-soft: rgba(0, 255, 156, 0.22);
+  --v-accent: #00ff9c;
+  --v-accent-soft: rgba(0, 255, 156, 0.18);
+  --v-accent-text: #00ff9c;
+  /* 危险 / 提醒：终端色板——`--v-danger` 就是 `ARGUS_NAMED.red` 的字面值 ——
+     ⭐ 用户 2026-09-29 裁决：`red` 从 `#ff5f56` **换成更亮的 `#ff6b61`**（保留"红"这个名字），
+     因为它原来**过不去自己那道闸门**（C1 判的是派生出的整份配色：旧值派生的 `--v-fg-3`
+     只有 2.85 < 3）。新值 fg-3 = 3.0053 / fg-4 = 1.8462 ⇒ 今天 `/color red` **收**。
+     ⚠️ 所以下面这五行必须与 `argusColor.ts` 的 `ARGUS_NAMED.red` **同一时刻**动
+     （`argusColor.test.ts` 的 R12-a 逐字对账；改一处不改另一处 ⇒ 必红）。
+     `--v-danger` 本身仍被 `themePalette.test.ts` 逐套跑（它遍历 `THEMES` ⇒ argus 自动在内）。 */
+  --v-danger: #ff6b61;
+  --v-danger-soft: rgba(255, 107, 97, 0.12);
+  --v-danger-btn: rgba(255, 107, 97, 0.18);
+  --v-danger-btn-active: rgba(255, 107, 97, 0.3);
+  --v-danger-text: #ffb3ae;
+  --v-warn: #ffbd2e;
+  --v-warn-soft: rgba(255, 189, 46, 0.12);
+  --v-warn-btn: rgba(255, 189, 46, 0.18);
+  --v-warn-text: #ffe0a3;
+  /* 结构：**四档全 2px**（终端里没有圆角这一说，但完全 0 会让焦点框糊在分界上）
+     ——`--v-radius-full` 尤其关键：不给就是字面量 2147483647px，药丸按钮会与其它方角打架。 */
+  --v-radius-md: 2px;
+  --v-radius-lg: 2px;
+  --v-radius-xl: 2px;
+  --v-radius-full: 2px;
+  /* 阴影改成"一圈细描边"：终端不投影，靠亮线分块（与 `--v-border` 同色系但更淡）。 */
+  --v-shadow-card: 0 0 0 1px rgba(0, 255, 156, 0.18);
+  --v-header-blur: 0px; /* 终端**不许**有毛玻璃：糊掉的字形与等宽字体天生不合 */
+  --v-panel-blur: 0px;
+  --v-font-sans: ui-monospace, 'Cascadia Mono', Consolas, 'Microsoft YaHei', monospace;
+  --v-tracking: 0.02em;
+  /* ⭐ T7 动效：终端那一档——**短 + 分步跳变**（`steps(2, end)` 是"光标式"的跳，
+     不是平滑过渡）。⚠️ `--v-motion-dur: 90ms` 与 `--v-ripple-dur: 0ms` 不是同一个数：
+     状态过渡要有、涟漪要没有（渲染层读到 `transparent` 涟漪本来就自关，
+     而 `0ms` 是第二道保险——命令式写的时长不归 CSS 管）。 */
+  --v-motion-dur: 90ms;
+  --v-motion-ease: steps(2, end);   /* 终端风：分步跳变，不是平滑过渡 */
+  --v-ripple: transparent;          /* 终端不要涟漪 */
+  --v-ripple-dur: 0ms;              /* ⚠️ 这套**不守**"= 2 × --v-motion-dur"那条规律（那会算出
+                                         180ms）：涟漪整套关掉了，时长自然归零（与粗野主义不同：
+                                         那一套是"0ms 的动效 + 0ms 的涟漪"，恰好同值） */
+  --v-press-scale: 1;
+}
+
+html {
+  /* 手机上禁掉横向滚动：源消息里偶有长链接，别把整页撑歪 */
+  overflow-x: hidden;
+}

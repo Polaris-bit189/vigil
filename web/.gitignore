@@ -1,0 +1,12 @@
+node_modules/
+# ⚠️ **`dist/` 刻意不 ignore**（2026-10-16 裁决，与仓库根 `.gitignore` 同一条理由）：
+# 评委 clone 后照 README 第 ③ 步 `vigil serve` 就该看到网页 ——
+# 而 dist 不进仓库的话只能看到一句「前端还没构建」，与 README 承诺不符。
+# ⚠️ 这是 Vite 模板的默认规则，**删掉它必须在这里留个说明**，
+# 否则下一个人会以为是漏写、把它加回来。
+# ⚠️ 改了前端**必须重新 `npm run build`** 并把新的 dist 一起提交。
+dev-dist/
+*.local
+
+# tsc -b 的增量构建缓存（机器本地，不该入库）
+*.tsbuildinfo

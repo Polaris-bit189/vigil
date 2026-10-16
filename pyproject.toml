@@ -1,0 +1,44 @@
+[project]
+name = "vigil"
+version = "0.2.0"
+description = "VIGIL 守夜人 —— 群聊信息聚合日报（本地预处理 + 华为云部署）"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "fastapi>=0.141.1",
+    "uvicorn>=0.53.0",
+]
+
+[project.optional-dependencies]
+# 云端部署用。pymysql 是**纯 Python**（无编译依赖）—— 这是刻意的：
+# 评委复现时不装编译器也能装上。
+cloud = [
+    "pymysql>=1.1",
+    "redis>=5.0",
+]
+# 私有 QQ 数据源用（**不随开源版本分发**）。
+# 把它从核心依赖降到这里，是一个**可检查的声明**：
+# 公开仓库的默认安装**不含任何解密库**。
+local-qq = [
+    "sqlcipher3>=0.6.2",
+]
+
+[project.scripts]
+vigil = "vigil.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["vigil*"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

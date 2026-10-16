@@ -1,0 +1,21 @@
+# 行尾策略显式化：仓库内存 LF，检出时由 git 按平台决定。
+# 不写这行的话 git 会用隐式默认值并每次操作都打警告。
+* text=auto
+
+# 二进制文件不参与行尾转换
+*.png  binary
+*.jpg  binary
+*.db   binary
+*.zip  binary
+
+# ⚠️ 日报是**归档**，不是源码：M4 的归档不变量要求「磁盘文件与库里 body_md **逐字节相等**」，
+# 而 `digest.py` 是以 `newline="\n"` 写出 **LF** 的。
+# 上面那行 `* text=auto` 配合本机 `core.autocrlf=true`，会让**任何一次重新检出的 git 操作**
+# （`git checkout --` / 切分支 / `git stash`）把这些文件变成 CRLF，
+# 于是不变量判据读出**假红**——而库里的 `body_md` 一个字都没变。
+# 强制两个方向都是 LF：不变量从此**对 git 免疫**，不靠"记得别 checkout"。
+docs/digests/*.md  text eol=lf
+
+# 演示语料库**也**要按二进制处理（上面 `*.db binary` 已覆盖，这里只是说明）：
+# 它是**逐字节确定性**的产物（同一 seed ⇒ 同一份文件），而行尾转换会改字节 ——
+# 那会同时打破「确定性」与「评委看到的库和你看到的一样」这两件事。

@@ -1,0 +1,16 @@
+# 每天 08:00（北京时间）跑一次日管线。
+#
+# ⚠️ `Persistent=true` 是**关键的**：它等价于 Windows 任务计划的
+#    `StartWhenAvailable` —— 机器在 08:00 时是关着的，开机后补跑一次。
+#    没有它，节假日关机的日子会**静默漏掉**，而日报的窗口是按天算的，
+#    漏一天就是永久缺一天。
+[Unit]
+Description=每天 08:00 触发 VIGIL 每日管线
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 Asia/Shanghai
+Persistent=true
+Unit=vigil-daily.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0b0f14" />
+    <link rel="icon" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <title>VIGIL 守夜人</title>
+    <!--
+      ⚠️ 防闪（FOUC）：主题属性必须在**首帧之前**挂上，否则默认主题会先画一帧
+      再跳成用户选的那套——手机上就是一道闪。
+
+      ⚠️ 白名单是**手写的第二份真相**（第一份是 src/theme.ts 的 THEMES）
+      ⇒ `theme.test.ts` 里有一条逐字比对。不校验的话，垃圾值会挂到
+      data-theme 上、CSS 静默回落——排查时零线索。
+    -->
+    <script>
+      ;(function () {
+        var ALLOWED = ['default', 'material', 'brutalism', 'vaporwave', 'glass', 'argus']
+        try {
+          var t = localStorage.getItem('vigil.theme')
+          if (t && ALLOWED.indexOf(t) !== -1) {
+            document.documentElement.setAttribute('data-theme', t)
+            /*
+              ⭐ R10：ARGUS 的**基色是用户可改的**（`/color`），而它生效的方式是 `:root` 的
+              **行内**变量——由 `applyArgusColor` 在模块加载**之后**才写。那一段窗口里页面
+              先按 CSS 里的默认绿画一帧、再跳成用户的颜色（手机上就是一道闪）。
+              ⇒ 这里把 `applyArgusColor` 落盘的那份 JSON 读回来、**原样**贴成行内变量。
+
+              ⛔ 不在这里自己算颜色：算一份 = 把 `deriveArgusVars` 的 alpha 表抄成第二份
+              真相，两处必然漂移（判据 `R10③` 钉的就是这个）。
+              ⛔ 不用 style 元素：它与 `[data-theme='…']` 是**同级**选择器，谁赢只看
+              出现顺序 ⇒ 不可靠。**必须行内**（行内赢过任何选择器）。
+              ⚠️（F-A5＋N1：上面**故意**不写出那个尖括号标签的字面量——写出来，用 grep 数它的人
+              会得到 **1 个命中本注释**的假阳性，核"脚本里没有 style 元素"的人会以为真有一个。
+              ⚠️ **本注同样不写出它**：第一版正是为了讲这个坑而把那条命令**逐字写了出来**，
+              于是自己成了那个假阳性（复核实测：grep 计数仍是 **1**，命中点就是那行注）。
+              ⇒ 要核"没有 style 元素"，用**剥掉注释后**再数（T8-2 复审给的第二条出路）。
+              同族的坑：下面那句注释里的 `=== 'argus'` 字面量。）
+
+              ⚠️ 整段嵌在 `=== 'argus'` 分支**内**：别的主题下贴 ARGUS 的行内变量，就是
+              「行内覆盖顶掉那套主题的 token」那个已知缺陷换个入口重演。
+              ⚠️（F-A1：**本行**这个 `=== 'argus'` 字面量曾让 `argusColor.test.ts` 的 R10④
+              命中**注释**而不是真分支（实测 idx **1425**，真分支在 **1608**）⇒ 那条断言
+              当时是**空守卫**（把分支改成 `if (true)` 它照样绿）。现在 R10④ 在**剥掉注释**
+              后的文本里取锚点，那次实测记在那条用例的注释里。）
+              ⚠️ 自己一个 try：盘上那份读炸了不该把 `data-theme` 也带下水（它是更重要的那条）。
+            */
+            if (t === 'argus') {
+              try {
+                /*
+                  ⛔ 安全：这份 JSON 在 **localStorage 里** ⇒ 用户（或任何一个能跑在本站的
+                  脚本）都可以把它改成任意内容。键名直接喂 `setProperty` = **任意行内样式
+                  注入**（`background-image: url(…)` 之类，甚至盖掉整页）。
+                  ⇒ 逐条白名单：**键名要在下面 `KNOWN` 那份名单里**，且值必须长得像
+                  十六进制或 rgb(a)——**不匹配的整条丢弃**（不是"试试看"）。
+
+                  ⭐⭐ F-A4（T8-2 复审的 Important）：名单**不能只按形状**（`^--v-…$`）。
+                  实测过的洞：形状白名单会放行**陌生键名**（手改过的 blob、或将来改名留下的
+                  旧键），而 `clearArgusColor()` 只清 `deriveArgusVars()` 那 **12** 个键
+                  ⇒ 那种键**首帧被贴上、切到别的主题时清不掉**（行内赢过任何选择器）
+                  ＝ §0.1 那个「行内顶掉别的主题」的缺陷换个入口重演。
+                  ⚠️ 这份名单是**手写副本**（第一份在 `src/argusColor.ts` 的 `deriveArgusVars`）
+                  ⇒ **必须与 JS 侧机械对上**：`argusColor.test.ts` 的 R10⑨ 把这份数组
+                  取出来与 `Object.keys(deriveArgusVars(ARGUS_DEFAULT))` **逐名比**（集合相同）。
+                  加/删/改名 ⇒ 两边一起改，否则那条判据红。
+                  ⚠️ 陈旧的 blob（少键）不硬套：**名单里有的**就贴、没有的留 CSS 默认值。
+                */
+                var raw = localStorage.getItem('vigil.argus.vars')
+                if (raw) {
+                  var vars = JSON.parse(raw)
+                  // ⚠️ 12 个键名，与 `deriveArgusVars()` 的键集合逐一对应（R10⑨ 钉着）
+                  var KNOWN = [
+                    '--v-fg', '--v-fg-2', '--v-fg-3', '--v-fg-4',
+                    '--v-surface', '--v-surface-2', '--v-inset',
+                    '--v-border', '--v-border-soft',
+                    '--v-accent', '--v-accent-soft', '--v-accent-text',
+                  ]
+                  // ⚠️ `RE_KEY` 自 `KNOWN` 之后就**冗余**了（名单里 12 个名字个个合形状）
+                  // ——保留是因为计划 R10 明令这三条正则字面量存在、R10④ 又逐字钉着它们；
+                  // 真正决定"贴不贴"的是 `KNOWN`。别把它读成承重件。
+                  var RE_KEY = /^--v-[a-z0-9-]+$/
+                  var RE_HEX = /^#[0-9a-f]{6}$/
+                  var RE_RGB = /^rgba?\([0-9., %]+\)$/
+                  for (var k in vars) {
+                    if (!Object.prototype.hasOwnProperty.call(vars, k)) continue
+                    if (typeof vars[k] !== 'string' || !RE_KEY.test(k)) continue
+                    if (KNOWN.indexOf(k) === -1) continue
+                    if (!RE_HEX.test(vars[k]) && !RE_RGB.test(vars[k])) continue
+                    document.documentElement.style.setProperty(k, vars[k])
+                  }
+                }
+              } catch (e2) {
+                /* 那份 blob 读不出/不是 JSON ⇒ 保持 CSS 里的默认色：防闪脚本不该是任何功能失败的原因 */
+              }
+            }
+          }
+        } catch (e) {
+          /* 读不到就保持默认主题：防闪脚本**不该**是任何功能失败的原因 */
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
